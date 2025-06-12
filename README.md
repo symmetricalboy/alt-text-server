@@ -1,0 +1,71 @@
+# Alt Text Server
+
+Node.js Express server that proxies requests to the Google Gemini API for generating alt text and video captions. Designed for deployment on [Railway](https://railway.app).
+
+## Features
+
+-   Provides a secure endpoint for the [Alt Text Extension](https://github.com/your-github/alt-text-ext) and [Web App](https://github.com/your-github/alt-text-web).
+-   Handles CORS and request validation.
+-   Adapts the original Google Cloud Function logic to run as a standard Express server.
+-   Includes a `/health` endpoint for deployment health checks.
+
+## API Endpoint
+
+-   `POST /generate-alt-text`
+
+    This is the main endpoint that receives requests for alt text generation, video captioning, and text condensation. It expects a JSON body with the same structure as the original `generateAltTextProxy` function.
+
+## Getting Started
+
+### Prerequisites
+
+-   Node.js v18
+-   A Google Gemini API Key
+
+### Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/your-github/alt-text-server.git
+    cd alt-text-server
+    ```
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
+3.  Create a local environment file by copying the example:
+    ```bash
+    cp .env.example .env
+    ```
+4.  Open the new `.env` file and add your Google Gemini API key.
+
+### Running Locally
+
+1.  Start the server in development mode (with hot-reloading):
+    ```bash
+    npm run dev
+    ```
+2.  The server will be running at `http://localhost:3000`.
+
+## Deployment to Railway
+
+This server is ready to be deployed on Railway.
+
+1.  Create a new project on Railway and link this GitHub repository.
+2.  Railway will automatically detect the `start` script in `package.json` (`node server.js`).
+3.  In the project's "Variables" tab on Railway, add your `GEMINI_API_KEY`. You do not need to upload your `.env` file, as Railway uses its own system for secrets.
+4.  Configure the Healthcheck in the "Settings" tab to use the `/health` path.
+
+Railway will build and deploy the service. The public URL will be provided in your Railway dashboard.
+
+## Project Structure
+
+```
+alt-text-server/
+├── server.js           # Express server wrapper for Railway
+├── index.js            # Core logic from the original cloud function
+├── package.json        # Dependencies and scripts
+├── .gitignore          # Files to exclude from version control
+├── .env.example        # Example environment variables
+└── README.md           # This file
+```
