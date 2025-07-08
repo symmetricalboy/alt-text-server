@@ -7,7 +7,7 @@ const fetch = require('node-fetch'); // Use node-fetch or native fetch in newer 
 // Good Practice: Use Build-time Environment Variables (set during deployment)
 // Simpler (but less secure than Secret Manager): Use Runtime Environment Variables
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Will be set during deployment
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // --- Simple system instructions for alt text ---
 const systemInstructions = `You will be provided with visual media (either a still image or a video file). Your task is to generate alternative text (alt-text) that describes the media's content and context. This alt-text is intended for use with screen reader technology, assisting individuals who are blind or visually impaired to understand the visual information. Adhere to the following guidelines strictly:
