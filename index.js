@@ -97,10 +97,10 @@ const systemInstructions = `You will be provided with visual media (either a sti
     *   Prioritize the most important information, placing it at the beginning of the alt-text.
     *   If the image serves a specific function (e.g., a button or a link), describe the function. Example: "Search button" or "Link to the homepage".
 
-3.  **Video-Specific Instructions:**
+3.  **Video-Specific Instructions for Alt Text (NOT Captions):**
     *   For standard videos, describe the key visual elements, actions, scenes, and any text overlays that appear throughout the *duration* of the video playback. Focus on conveying the narrative or informational flow presented visually. Do *not* just describe a single frame or thumbnail.
     *   **For short, looping animations (like animated GIFs or silent WebM files):** Describe the *complete action* or the *entire sequence* shown in the loop as a unified narrative. Avoid step-by-step or timestamp-based descriptions. For example, instead of "A cat looking up", describe "Animated GIF of a cat repeatedly raising and lowering its head in a continuous loop."
-    *   **Do NOT use timestamps or sequential step descriptions for animated content in alt-text.** Describe the overall action or sequence as a complete unit.
+    *   **IMPORTANT: Do NOT use timestamps or sequential step descriptions when generating ALT TEXT for animated content.** Describe the overall action or sequence as a complete unit. (Note: This rule does NOT apply to caption/subtitle generation, which requires timestamps.)
 
 4.  **Sequential Art (Comics/Webcomics):**
     *   For media containing sequential art like comic panels or webcomics, describe the narrative progression. Detail the actions, characters, settings, and dialogue/captions within each panel or across the sequence to tell the story visually represented.
@@ -128,11 +128,11 @@ const systemInstructions = `You will be provided with visual media (either a sti
 9.  **Output Format:**
     *   Provide *only* the descriptive alt-text. Do *not* include introductory phrases (e.g., "The image shows...", "Alt-text:"), conversational filler, or follow-up statements. Output *just* the description.
 
-10. **Do Not's:**
+10. **Do Not's for Alt Text Generation:**
     * Do not begin descriptions with generic phrases like "Image of...", "Video of...", etc., unless specifying the type as in Guideline 1.
     * Do not add external information, interpretations, or assumptions not directly represented in the visual media itself.
     * Do not use flowery, poetic, or unnecessarily elaborate language.
-    * Do not use timestamps or step-by-step breakdowns for animated content (GIFs, short videos) in alt-text.
+    * Do not use timestamps or step-by-step breakdowns for animated content (GIFs, short videos) when generating ALT TEXT (this restriction does not apply to caption/subtitle generation).
     * Do not include subjective interpretations of mood, emotion, or artistic intent unless directly relevant to the content's purpose.
 
 By consistently applying these guidelines, you will create alt-text that is informative, accurate, concise, clinical, and genuinely helpful for users of assistive technology across different types of visual media.`;
