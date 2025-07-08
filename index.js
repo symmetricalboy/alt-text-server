@@ -34,6 +34,9 @@ const ALLOWED_FIREFOX_ORIGIN_PREFIX = 'moz-extension://';
 // Web app domains
 const ALLOWED_WEB_APP_ORIGIN = 'https://alttext.symm.app';
 const ALLOWED_DEV_WEB_APP_ORIGIN = 'https://alttextdev.symm.app'; // Added for dev environment
+// Railway domains (for Railway deployments)
+const ALLOWED_RAILWAY_PREFIX = 'https://'; // Allow any HTTPS domain temporarily for Railway testing
+const ALLOWED_RAILWAY_SPECIFIC_PREFIX = 'https://alt-text-web-'; // Specific Railway domain pattern
 // Local development origins
 const ALLOWED_LOCAL_ORIGINS = [
     'http://localhost:8080',
@@ -56,7 +59,10 @@ const allowedFullOrigins = [
 const allowedPrefixes = [
     ALLOWED_CHROME_ORIGIN_PREFIX,
     ALLOWED_SAFARI_ORIGIN_PREFIX, // Check if Safari needs full ID or just prefix based on testing
-    ALLOWED_FIREFOX_ORIGIN_PREFIX
+    ALLOWED_FIREFOX_ORIGIN_PREFIX,
+    ALLOWED_RAILWAY_SPECIFIC_PREFIX, // Specific Railway domain pattern
+    // Temporarily allow any HTTPS for Railway testing - REMOVE IN PRODUCTION
+    // 'https://' // Uncomment this line for broad testing only
 ];
 
 
