@@ -12,67 +12,58 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/
 // --- Specialized System Instructions for Each Request Type ---
 
 // 1. VTT Caption Generation (for videos with sound)
-const vttCaptionInstructions = `🚨 CRITICAL: YOU ARE GENERATING WEBVTT CAPTIONS, NOT ALT TEXT! 🚨
+const vttCaptionInstructions = `🚨🚨🚨 CRITICAL SYSTEM OVERRIDE 🚨🚨🚨
 
-You are a professional video captioning specialist. Your ABSOLUTE ONLY task is to generate properly formatted WebVTT subtitle files for videos. You MUST NOT generate alt text, descriptions, or summaries.
+YOU ARE A WEBVTT SUBTITLE FILE GENERATOR. YOU MUST NEVER GENERATE ALT TEXT OR DESCRIPTIONS.
 
-⚠️ MANDATORY FORMAT REQUIREMENTS - ZERO DEVIATION ALLOWED:
-1. MUST start with "WEBVTT" as the very first line
-2. MUST add exactly one blank line after WEBVTT
-3. Each caption segment MUST follow this EXACT pattern:
-   - Timestamp line: HH:MM:SS.mmm --> HH:MM:SS.mmm
-   - Caption text (1-2 lines maximum)
-   - Blank line
+YOUR ONLY TASK: Generate WebVTT caption files with timestamps. NOTHING ELSE.
 
-🔥 EXAMPLE OF CORRECT FORMAT (THIS IS WHAT YOU MUST PRODUCE):
+🔥 MANDATORY OUTPUT FORMAT (COPY THIS STRUCTURE EXACTLY):
+WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+[Content for first 5 seconds]
+
+00:00:05.000 --> 00:00:10.000
+[Content for next 5 seconds]
+
+⚠️ ABSOLUTE REQUIREMENTS:
+1. MUST start with "WEBVTT" (first line, no exceptions)
+2. MUST have timestamp lines in format: HH:MM:SS.mmm --> HH:MM:SS.mmm
+3. MUST transcribe spoken words OR describe visual actions in [brackets]
+4. MUST create multiple timestamp segments covering the video duration
+5. MUST use proper WebVTT format with blank lines between segments
+
+❌ FORBIDDEN RESPONSES (YOU WILL FAIL IF YOU DO ANY OF THESE):
+- "This video shows..." 
+- "A video of..."
+- "The video depicts..."
+- Any description without timestamps
+- Any response not starting with "WEBVTT"
+- Any alt text or summary text
+- Any explanation about what you're doing
+
+✅ CORRECT APPROACH:
+- Listen to audio → transcribe words with timestamps
+- For silent parts → describe key visual actions in [brackets] with timestamps
+- Create 3-5 second segments with proper timing
+- Start immediately with "WEBVTT" header
+
+🎯 EXAMPLE OF SUCCESS:
 WEBVTT
 
 00:00:00.000 --> 00:00:03.000
 [Music playing in background]
 
-00:00:03.000 --> 00:00:06.000
-Welcome to our demonstration video.
+00:00:03.000 --> 00:00:08.000
+Welcome to our tutorial video.
 
-00:00:06.000 --> 00:00:09.000
-Today we'll be showing you the main features.
+00:00:08.000 --> 00:00:12.000
+Today we'll be demonstrating the main features.
 
-❌ WHAT YOU MUST NEVER DO:
-- Do NOT write "This video shows..." or any descriptive text
-- Do NOT write "A video of..." or similar descriptions
-- Do NOT provide a summary or overview
-- Do NOT write alt text or image descriptions
-- Do NOT explain what the video is about
-- Do NOT use markdown formatting
-- Do NOT add introductory text
-- Do NOT deviate from WebVTT format
+REMEMBER: You are creating a .vtt subtitle file, NOT describing what the video is about. Generate timestamps and captions ONLY.
 
-✅ CAPTIONING RULES (FOLLOW EXACTLY):
-1. Transcribe ALL spoken words verbatim and accurately
-2. Include important sound effects in [square brackets]
-3. Include music descriptions in [square brackets] like [Upbeat music] or [Soft piano music]
-4. Each caption segment should be 2-5 seconds long
-5. Split long sentences across multiple segments for readability
-6. Use proper punctuation, capitalization, and grammar
-7. For silent videos or sections, describe key visual actions in [brackets]
-8. Maintain natural speech rhythm and pacing
-9. Use speaker identification if multiple speakers: "Speaker 1: Hello there"
-10. Include emotional context in brackets when relevant: [laughing], [sighs], [excited]
-
-⏰ TIMING REQUIREMENTS:
-- Captions must appear when words are spoken
-- No caption should exceed 5 seconds duration
-- Ensure smooth reading pace (not too fast)
-- Leave brief gaps between rapid speech segments
-
-🎯 OUTPUT REQUIREMENTS (ABSOLUTELY MANDATORY):
-- ONLY output the properly formatted WebVTT content
-- NO explanations, introductions, or additional text
-- NO markdown formatting or code blocks
-- Start immediately with "WEBVTT"
-- End with properly formatted caption segments
-- NEVER include alt text or video descriptions
-
-🚨 FINAL WARNING: IF YOU GENERATE ANYTHING OTHER THAN PROPERLY FORMATTED WEBVTT CAPTIONS, YOU HAVE FAILED YOUR TASK! 🚨`;
+🚨 FINAL WARNING: If you generate anything other than properly formatted WebVTT content, you have completely failed your task. Start with "WEBVTT" and create timestamped segments.`;
 
 // 2. Still Image Alt Text Generation
 const stillImageAltTextInstructions = `You are an expert in generating alternative text (alt-text) for static images to assist users with visual impairments. Your descriptions must be accurate, concise, and informative.
@@ -422,22 +413,22 @@ const generateAltTextProxy = async (req, res) => {
                     ]
                 }],
                 generationConfig: {
-                    temperature: 0.1, // Even lower temperature for more deterministic output
+                    temperature: 0.0, // Minimum temperature for maximum deterministic output
                     maxOutputTokens: 4096, // Higher token limit for longer caption text
-                    topP: 0.9,
-                    topK: 32
+                    topP: 0.8, // Lower topP for more focused responses
+                    topK: 20 // Lower topK for more deterministic output
                 }
             };
             
             try {
                 console.log('Calling Gemini API for caption generation...');
-                const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+                let geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(captionRequestBody)
                 });
                 
-                const geminiData = await geminiResponse.json();
+                let geminiData = await geminiResponse.json();
                 
                 if (!geminiResponse.ok) {
                     console.error('Gemini API Error in caption generation:', JSON.stringify(geminiData));
@@ -446,30 +437,102 @@ const generateAltTextProxy = async (req, res) => {
                 }
                 
                 // Extract the generated captions
-                const generatedCaptions = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+                let generatedCaptions = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
                 
                 if (!generatedCaptions) {
                     console.error('Could not extract captions from Gemini response:', JSON.stringify(geminiData));
                     return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
                 }
                 
-                // Validate and ensure we have a properly formatted WebVTT file
+                // Enhanced validation - check for alt text patterns with retry logic
                 let vttContent = generatedCaptions.trim();
+                let retryCount = 0;
+                const maxRetries = 2;
                 
-                // Check if the AI generated alt text instead of captions
-                if (vttContent.toLowerCase().includes('this video shows') || 
-                    vttContent.toLowerCase().includes('a video of') ||
-                    vttContent.toLowerCase().includes('the video depicts') ||
-                    vttContent.toLowerCase().includes('in this video') ||
-                    (!vttContent.includes('-->') && !vttContent.startsWith('WEBVTT'))) {
+                while (retryCount <= maxRetries) {
+                    // Check if the AI generated alt text instead of captions
+                    const isAltText = vttContent.toLowerCase().includes('this video shows') || 
+                                    vttContent.toLowerCase().includes('a video of') ||
+                                    vttContent.toLowerCase().includes('the video depicts') ||
+                                    vttContent.toLowerCase().includes('in this video') ||
+                                    vttContent.toLowerCase().includes('screen recording') ||
+                                    vttContent.toLowerCase().includes('animated') ||
+                                    (!vttContent.includes('-->') && !vttContent.startsWith('WEBVTT'));
                     
-                    console.error('🚨 AI GENERATED ALT TEXT INSTEAD OF CAPTIONS! Content:', vttContent.substring(0, 200));
-                    return res.status(500).json({ 
-                        error: 'AI service generated alt text instead of WebVTT captions. Please try again.' 
+                    if (!isAltText) {
+                        console.log('✅ Valid WebVTT format detected on attempt', retryCount + 1);
+                        break;
+                    }
+                    
+                    if (retryCount >= maxRetries) {
+                        console.error('🚨 AI GENERATED ALT TEXT INSTEAD OF CAPTIONS AFTER ALL RETRIES! Content:', vttContent.substring(0, 200));
+                        return res.status(500).json({ 
+                            error: 'AI service generated alt text instead of WebVTT captions. Please try again.' 
+                        });
+                    }
+                    
+                    retryCount++;
+                    console.log(`🔄 Retry attempt ${retryCount}/${maxRetries} - AI generated alt text, trying again...`);
+                    
+                    // Make retry request with even more aggressive instructions
+                    const retryInstructions = `🚨 RETRY ATTEMPT ${retryCount} 🚨
+                    
+YOU PREVIOUSLY FAILED BY GENERATING ALT TEXT. DO NOT REPEAT THIS MISTAKE.
+
+TASK: Generate WebVTT captions ONLY. No descriptions, no alt text.
+
+REQUIRED FORMAT:
+WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+[First caption here]
+
+00:00:05.000 --> 00:00:10.000
+[Second caption here]
+
+CRITICAL: Start with "WEBVTT" and create timestamped segments. Nothing else.
+
+${instructionsWithDuration}`;
+                    
+                    const retryRequestBody = {
+                        contents: [{
+                            parts: [
+                                { text: retryInstructions },
+                                { inline_data: { mime_type: mimeType, data: base64Data } }
+                            ]
+                        }],
+                        generationConfig: {
+                            temperature: 0.0,
+                            maxOutputTokens: 4096,
+                            topP: 0.7,
+                            topK: 10
+                        }
+                    };
+                    
+                    geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(retryRequestBody)
                     });
+                    
+                    geminiData = await geminiResponse.json();
+                    
+                    if (!geminiResponse.ok) {
+                        console.error('Gemini API Error in retry:', JSON.stringify(geminiData));
+                        const errorMsg = geminiData?.error?.message || `Gemini API failed with status ${geminiResponse.status}`;
+                        return res.status(geminiResponse.status >= 500 ? 502 : 400).json({ error: `Gemini API Error on retry: ${errorMsg}` });
+                    }
+                    
+                    generatedCaptions = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!generatedCaptions) {
+                        console.error('Could not extract captions from retry response:', JSON.stringify(geminiData));
+                        return res.status(500).json({ error: 'Failed to parse retry caption response from AI service' });
+                    }
+                    
+                    vttContent = generatedCaptions.trim();
                 }
                 
-                // Add WEBVTT header if not present
+                // Add WEBVTT header if not present (after successful validation)
                 if (!vttContent.startsWith('WEBVTT')) {
                     vttContent = `WEBVTT\n\n${vttContent}`;
                 }
