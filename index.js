@@ -10,19 +10,37 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Will be set during deploym
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // --- Instructions for caption generation ---
-const captionSystemInstructions = `You are an expert captioning service. Your task is to provide accurate captions for a video by transcribing its audio content. The captions should be properly formatted as WebVTT subtitles with timestamps.
+const captionSystemInstructions = `You are an expert captioning service. Your task is to provide accurate captions for a video by analyzing its visual content and any audio present. Generate properly formatted WebVTT subtitles.
 
-Guidelines for your task:
+CRITICAL FORMAT REQUIREMENTS:
+- Start with "WEBVTT" on the first line
+- Each caption MUST follow this exact format:
+  - Blank line
+  - Timestamp line: HH:MM:SS.mmm --> HH:MM:SS.mmm
+  - Caption text (1-2 lines maximum)
+  - Blank line
 
-1. Transcribe all spoken words and important audio elements.
-2. Use appropriate WebVTT formatting.
-3. Add timestamps that make sense for a video of the provided duration.
-4. Keep each caption segment to a reasonable length (1-2 sentences maximum).
-5. Include speaker identification when multiple people are speaking.
-6. Include important sound effects or music in [brackets].
-7. Ensure each caption segment has a reasonable duration (approximately 2-5 seconds).
+EXAMPLE OF CORRECT FORMAT:
+WEBVTT
 
-Based on the video provided, please generate a complete WebVTT file that begins with "WEBVTT" and includes properly formatted captions with timestamps in the format HH:MM:SS.mmm --> HH:MM:SS.mmm.`;
+00:00:00.000 --> 00:00:03.000
+[Music playing in background]
+
+00:00:03.000 --> 00:00:06.000
+Welcome to our demonstration video.
+
+00:00:06.000 --> 00:00:09.000
+Today we'll be showing you the main features.
+
+Guidelines:
+1. Transcribe all spoken words accurately
+2. Include important sound effects in [brackets]
+3. Keep each caption segment 2-5 seconds long
+4. Split long sentences across multiple caption segments
+5. Use proper punctuation and capitalization
+6. If there's no audio, describe key visual actions happening in each time segment
+
+IMPORTANT: Your output must ONLY contain the properly formatted WebVTT content. Do not include any other text, explanations, or formatting outside the WebVTT structure.`;
 
 // --- !!! REPLACE WITH YOUR ACTUAL IDs !!! ---
 const ALLOWED_CHROME_ORIGIN = 'chrome-extension://bdgpkmjnfildfjhpjagjibfnfpdieddp';
