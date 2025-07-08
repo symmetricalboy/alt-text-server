@@ -5,6 +5,14 @@ Node.js Express server that proxies requests to the Google Gemini API for genera
 ## Features
 
 -   Provides a secure endpoint for the [Alt Text Extension](https://github.com/your-github/alt-text-ext) and [Web App](https://github.com/your-github/alt-text-web).
+-   **Specialized AI Instructions**: Uses dedicated instruction sets optimized for each request type:
+    - VTT caption generation with precise WebVTT formatting requirements
+    - Still image alt text generation for static images
+    - Animated content descriptions for GIFs and short videos
+    - Full video alt text for comprehensive video content
+    - Video frame descriptions for single extracted frames
+    - Text condensation for length optimization
+-   **Smart Content Detection**: Automatically selects appropriate instruction sets based on media type and characteristics
 -   Handles CORS and request validation.
 -   Adapts the original Google Cloud Function logic to run as a standard Express server.
 -   Includes a `/health` endpoint for deployment health checks.
@@ -14,6 +22,40 @@ Node.js Express server that proxies requests to the Google Gemini API for genera
 -   `POST /generate-alt-text`
 
     This is the main endpoint that receives requests for alt text generation, video captioning, and text condensation. It expects a JSON body with the same structure as the original `generateAltTextProxy` function.
+
+## Request Types and AI Instructions
+
+The server uses specialized instruction sets tailored for different types of content:
+
+### 1. VTT Caption Generation
+- **Trigger**: `req.body.action === 'generateCaptions'`
+- **Use Case**: Creating properly formatted WebVTT subtitle files for videos with audio
+- **Features**: Precise timestamp formatting, audio transcription, sound effect notation
+
+### 2. Still Image Alt Text
+- **Trigger**: Static images (JPEG, PNG, etc.) without animation
+- **Use Case**: Describing photographs, illustrations, screenshots, diagrams
+- **Features**: Concise descriptions, text transcription, clinical objectivity
+
+### 3. Animated Content Alt Text  
+- **Trigger**: Animated GIFs, animated WebP, APNG, or short videos treated as animations
+- **Use Case**: Describing looping animations and short motion content
+- **Features**: Complete sequence description, motion capture, unified narrative
+
+### 4. Full Video Alt Text
+- **Trigger**: Standard video files (MP4, WebM) with `isVideo=true`
+- **Use Case**: Comprehensive description of video content and narrative
+- **Features**: Scene progression, visual narrative, comprehensive coverage
+
+### 5. Video Frame Alt Text
+- **Trigger**: Single frames extracted from videos due to processing limitations
+- **Use Case**: Best-effort description when full video processing isn't possible
+- **Features**: Detailed frame analysis, context inference, clear limitation acknowledgment
+
+### 6. Text Condensation
+- **Trigger**: `req.body.operation === 'condense_text'`
+- **Use Case**: Reducing text length while preserving essential meaning
+- **Features**: Intelligent summarization, length targeting, meaning preservation
 
 ## Getting Started
 
