@@ -56,6 +56,8 @@ By consistently applying these guidelines, you will create alt-text that is info
 // --- Simple caption generation instructions ---
 const captionSystemInstructions = `You are an expert captioning service. Your task is to provide accurate captions for a video by transcribing its audio content. The captions should be properly formatted as WebVTT subtitles with timestamps.
 
+CRITICAL OUTPUT REQUIREMENT: Output ONLY the WebVTT file content. Do NOT include any conversational text, explanations, confirmations, or introductory phrases like "Here are the captions" or "Sure thing!". Start immediately with "WEBVTT" and provide only the subtitle content.
+
 Guidelines for your task:
 
 1. Transcribe all spoken words and important audio elements.
@@ -66,7 +68,7 @@ Guidelines for your task:
 6. Include important sound effects or music in [brackets].
 7. Ensure each caption segment has a reasonable duration (approximately 2-5 seconds).
 
-Based on the video provided, please generate a complete WebVTT file that begins with "WEBVTT" and includes properly formatted captions with timestamps in the format HH:MM:SS.mmm --> HH:MM:SS.mmm.`;
+OUTPUT FORMAT: Provide ONLY the WebVTT file content starting with "WEBVTT" followed by properly formatted captions with timestamps in the format HH:MM:SS.mmm --> HH:MM:SS.mmm. Do NOT add any conversational text before, after, or within the WebVTT content.`;
 
 // --- Text condensation instructions (keep this one as it was added recently) ---
 const textCondensationInstructions = `You are a text condensation specialist. Your task is to reduce the length of provided text while preserving all essential meaning and information.
