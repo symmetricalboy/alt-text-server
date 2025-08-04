@@ -1,13 +1,18 @@
-// index.js (for Google Cloud Functions - Node.js Runtime)
-// const functions = require('@google-cloud/functions-framework'); // No longer needed
-const fetch = require('node-fetch'); // Use node-fetch or native fetch in newer Node versions
+// index.js (for Google Cloud Functions - Node.js Runtime) 
+// Updated to use the new @google/genai SDK with Gemini 2.5 Flash
+const { GoogleGenAI } = require('@google/genai');
 
 // IMPORTANT: Store your API Key securely!
 // Best Practice: Use Secret Manager (https://cloud.google.com/secret-manager)
 // Good Practice: Use Build-time Environment Variables (set during deployment)
 // Simpler (but less secure than Secret Manager): Use Runtime Environment Variables
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Will be set during deployment
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+// Initialize the Google GenAI client
+let genaiClient = null;
+if (GEMINI_API_KEY) {
+    genaiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+}
 
 // --- Simple system instructions for alt text ---
 const systemInstructions = `You will be provided with visual media (either a still image or a video file). Your task is to generate alternative text (alt-text) that describes the media's content and context. This alt-text is intended for use with screen reader technology, assisting individuals who are blind or visually impaired to understand the visual information. Adhere to the following guidelines strictly:
@@ -127,6 +132,103 @@ const allowedPrefixes = [
 
 // --- All system instructions are now defined above as specialized instruction sets ---
 
+// Helper function to create generation config with Gemini 2.5 Flash settings
+function createGenerationConfig(options = {}) {
+    const config = {
+        temperature: options.temperature || 0.25, // Using recommended temperature from example
+        maxOutputTokens: options.maxOutputTokens || 10000, // Using recommended max tokens
+        thinking_config: {
+            thinking_budget: 0 // Disable thinking as requested
+        },
+        tools: [
+            // Google Search for better object/people identification
+            { googleSearch: {} }
+        ]
+    };
+    
+    // Add additional config options if provided
+    if (options.systemInstruction) {
+        config.systemInstruction = options.systemInstruction;
+    }
+    
+    return config;
+}
+
+// Helper function to check if file is large enough to require Files API (>20MB)
+function shouldUseFilesAPI(base64Data) {
+    if (!base64Data) return false;
+    
+    // Estimate file size from base64 data
+    // Base64 encoding increases size by ~33%, so decode to get actual size
+    const estimatedSize = (base64Data.length * 3) / 4;
+    const MAX_INLINE_SIZE = 20 * 1024 * 1024; // 20MB
+    
+    return estimatedSize > MAX_INLINE_SIZE;
+}
+
+// Helper function to upload file using Files API
+async function uploadToFilesAPI(base64Data, mimeType) {
+    if (!genaiClient) {
+        throw new Error('GenAI client not initialized');
+    }
+    
+    try {
+        // Convert base64 to Buffer for upload
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Create a temporary file-like object
+        const blob = {
+            data: buffer,
+            mimeType: mimeType
+        };
+        
+        // Upload using Files API
+        const uploadResult = await genaiClient.files.upload({
+            file: blob,
+            config: {
+                mimeType: mimeType,
+                displayName: `uploaded_media_${Date.now()}`
+            }
+        });
+        
+        // Wait for processing if needed
+        let file = uploadResult;
+        while (file.state === 'PROCESSING') {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            file = await genaiClient.files.get({ name: file.name });
+        }
+        
+        if (file.state === 'FAILED') {
+            throw new Error('File upload processing failed');
+        }
+        
+        return file;
+    } catch (error) {
+        console.error('Error uploading to Files API:', error);
+        throw error;
+    }
+}
+
+// Helper function to generate content using the new SDK
+async function generateContentWithSDK(contents, config) {
+    if (!genaiClient) {
+        throw new Error('GenAI client not initialized - missing API key');
+    }
+    
+    try {
+        const response = await genaiClient.models.generateContent({
+            model: 'gemini-2.5-flash', // Using the new Gemini 2.5 Flash model
+            contents: contents,
+            config: config
+        });
+        
+        return response;
+    } catch (error) {
+        console.error('Error generating content with SDK:', error);
+        throw error;
+    }
+}
+
 
 const generateAltTextProxy = async (req, res) => {
     const requestOrigin = req.headers.origin;
@@ -219,42 +321,31 @@ const generateAltTextProxy = async (req, res) => {
             // Use specialized text condensation instructions
             const condensationPrompt = `${textCondensationInstructions}\n\nTARGET LENGTH: ${req.body.targetLength}\nDIRECTIVE: ${req.body.directive}\n\nTEXT TO CONDENSE:\n${req.body.text}`;
             
-            // Call Gemini API for text condensation
-            const condensingRequestBody = {
-                contents: [{
-                    parts: [
-                        { text: condensationPrompt }
-                    ]
-                }],
-                generationConfig: {
-                    temperature: 0.2, // Lower temperature for more deterministic output
-                    maxOutputTokens: 1024 // Limit output size
-                }
-            };
-            
-            const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(condensingRequestBody)
+            // Create generation config for text condensation
+            const config = createGenerationConfig({
+                temperature: 0.2, // Lower temperature for more deterministic output
+                maxOutputTokens: 1024 // Limit output size for condensation
             });
             
-            const geminiData = await geminiResponse.json();
-            
-            if (!geminiResponse.ok) {
-                console.error('Gemini API Error in text condensation:', JSON.stringify(geminiData));
-                const errorMsg = geminiData?.error?.message || `Gemini API failed with status ${geminiResponse.status}`;
-                return res.status(geminiResponse.status >= 500 ? 502 : 400).json({ error: `Gemini API Error: ${errorMsg}` });
+            try {
+                // Call Gemini 2.5 Flash for text condensation using new SDK
+                const response = await generateContentWithSDK(condensationPrompt, config);
+                
+                const condensedText = response.text;
+                
+                if (!condensedText) {
+                    console.error('Could not extract condensed text from Gemini response');
+                    return res.status(500).json({ error: 'Failed to parse response from AI service' });
+                }
+                
+                console.log(`Successfully condensed text from ${req.body.text.length} to ${condensedText.length} characters`);
+                return res.status(200).json({ altText: condensedText.trim() });
+                
+            } catch (error) {
+                console.error('Error in text condensation:', error);
+                const statusCode = error.message.includes('API') ? 502 : 500;
+                return res.status(statusCode).json({ error: `Text condensation failed: ${error.message}` });
             }
-            
-            const condensedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-            
-            if (!condensedText) {
-                console.error('Could not extract condensed text from Gemini response:', JSON.stringify(geminiData));
-                return res.status(500).json({ error: 'Failed to parse response from AI service' });
-            }
-            
-            console.log(`Successfully condensed text from ${req.body.text.length} to ${condensedText.length} characters`);
-            return res.status(200).json({ altText: condensedText.trim() });
         }
         
         // Check if this is a caption generation request
@@ -283,60 +374,89 @@ const generateAltTextProxy = async (req, res) => {
             // Add the duration to the instructions
             const instructionsWithDuration = `${captionSystemInstructions}\n\nThis video is approximately ${videoDuration} seconds long. Please create appropriate captions with timestamps that cover this duration.`;
             
-            // Call Gemini API for caption generation
-            const captionRequestBody = {
-                contents: [{
-                    parts: [
-                        { text: instructionsWithDuration },
-                        { inline_data: { mime_type: mimeType, data: base64Data } }
-                    ]
-                }],
-                generationConfig: {
+            try {
+                console.log('Calling Gemini 2.5 Flash for caption generation...');
+                
+                // Create generation config for caption generation
+                const config = createGenerationConfig({
                     temperature: 0.2,
                     maxOutputTokens: 4096, // Higher token limit for longer caption text
-                    topP: 0.95,
-                    topK: 40
-                }
-            };
-            
-            try {
-                console.log('Calling Gemini API for caption generation...');
-                const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(captionRequestBody)
+                    systemInstruction: instructionsWithDuration
                 });
                 
-                const geminiData = await geminiResponse.json();
-                
-                if (!geminiResponse.ok) {
-                    console.error('Gemini API Error in caption generation:', JSON.stringify(geminiData));
-                    const errorMsg = geminiData?.error?.message || `Gemini API failed with status ${geminiResponse.status}`;
-                    return res.status(geminiResponse.status >= 500 ? 502 : 400).json({ error: `Gemini API Error: ${errorMsg}` });
+                // Check if we need to use Files API for large video files
+                if (shouldUseFilesAPI(base64Data)) {
+                    console.log('Large video file detected, using Files API for caption generation');
+                    
+                    // Upload file using Files API
+                    const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
+                    
+                    // Create content using file URI
+                    const contents = [{
+                        parts: [
+                            { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
+                        ]
+                    }];
+                    
+                    const response = await generateContentWithSDK(contents, config);
+                    const generatedCaptions = response.text;
+                    
+                    // Clean up uploaded file after processing
+                    try {
+                        await genaiClient.files.delete({ name: uploadedFile.name });
+                        console.log('Cleaned up uploaded file after caption generation');
+                    } catch (cleanupError) {
+                        console.warn('Warning: Could not clean up uploaded file:', cleanupError);
+                    }
+                    
+                    if (!generatedCaptions) {
+                        console.error('Could not extract captions from Gemini response');
+                        return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
+                    }
+                    
+                    // Ensure we have a properly formatted WebVTT file
+                    let vttContent = generatedCaptions.trim();
+                    
+                    // Add WEBVTT header if not present
+                    if (!vttContent.startsWith('WEBVTT')) {
+                        vttContent = `WEBVTT\n\n${vttContent}`;
+                    }
+                    
+                    console.log('Successfully generated captions using Files API.');
+                    return res.status(200).json({ vttContent: vttContent });
+                    
+                } else {
+                    // Use inline data for smaller files
+                    const contents = [{
+                        parts: [
+                            { inlineData: { mimeType: mimeType, data: base64Data } }
+                        ]
+                    }];
+                    
+                    const response = await generateContentWithSDK(contents, config);
+                    const generatedCaptions = response.text;
+                    
+                    if (!generatedCaptions) {
+                        console.error('Could not extract captions from Gemini response');
+                        return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
+                    }
+                    
+                    // Ensure we have a properly formatted WebVTT file
+                    let vttContent = generatedCaptions.trim();
+                    
+                    // Add WEBVTT header if not present
+                    if (!vttContent.startsWith('WEBVTT')) {
+                        vttContent = `WEBVTT\n\n${vttContent}`;
+                    }
+                    
+                    console.log('Successfully generated captions using inline data.');
+                    return res.status(200).json({ vttContent: vttContent });
                 }
-                
-                // Extract the generated captions
-                const generatedCaptions = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-                
-                if (!generatedCaptions) {
-                    console.error('Could not extract captions from Gemini response:', JSON.stringify(geminiData));
-                    return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
-                }
-                
-                // Ensure we have a properly formatted WebVTT file
-                let vttContent = generatedCaptions.trim();
-                
-                // Add WEBVTT header if not present
-                if (!vttContent.startsWith('WEBVTT')) {
-                    vttContent = `WEBVTT\n\n${vttContent}`;
-                }
-                
-                console.log('Successfully generated captions.');
-                return res.status(200).json({ vttContent: vttContent });
                 
             } catch (error) {
                 console.error('Error generating captions:', error);
-                return res.status(500).json({ error: `Caption generation failed: ${error.message}` });
+                const statusCode = error.message.includes('API') ? 502 : 500;
+                return res.status(statusCode).json({ error: `Caption generation failed: ${error.message}` });
             }
         }
         
@@ -457,59 +577,80 @@ In a real implementation, we would analyze the actual video.`;
             effectiveSystemInstructions = `${systemInstructions}\n\nIMPORTANT ADDITIONAL CONTEXT: Due to technical limitations with processing large videos, you are being provided with a representative screenshot from the video rather than the full video file. Please describe this frame as thoroughly as possible, focusing on the visual content, and make it clear that this is describing a single moment from a video rather than the complete video content. Begin your description with "A frame from a video showing..." to clarify this limitation to the user.`;
         }
 
-        // --- Call Gemini API ---
-        let mimeTypeForGemini = mimeType; // Start with the (cleaned) original mimeType
-        if (isVideo && isAnimatedImage) {
-            // If the client flagged it as video-like (e.g., for Bluesky posting requirements)
-            // AND it's one of our recognized animated image types (gif, animated webp, apng),
-            // let's try sending a common video MIME type to Gemini.
-            // The system instructions for animated images should still guide Gemini correctly.
-            mimeTypeForGemini = 'video/mp4'; 
-            console.log(`ALERT: For Gemini API call, overriding mimeType from "${mimeType}" to "${mimeTypeForGemini}" because isVideo=true and isAnimatedImage=true.`);
-        } else if (mimeType === 'video/webm') {
-            // WebM files should be sent as MP4 for better Gemini compatibility
-            mimeTypeForGemini = 'video/mp4';
-            console.log(`ALERT: For Gemini API call, overriding mimeType from "${mimeType}" to "${mimeTypeForGemini}" for better WebM compatibility.`);
-        }
+        try {
+            // --- Call Gemini 2.5 Flash API using new SDK ---
+            let mimeTypeForGemini = mimeType; // Start with the (cleaned) original mimeType
+            if (isVideo && isAnimatedImage) {
+                // If the client flagged it as video-like (e.g., for Bluesky posting requirements)
+                // AND it's one of our recognized animated image types (gif, animated webp, apng),
+                // let's try sending a common video MIME type to Gemini.
+                // The system instructions for animated images should still guide Gemini correctly.
+                mimeTypeForGemini = 'video/mp4'; 
+                console.log(`ALERT: For Gemini API call, overriding mimeType from "${mimeType}" to "${mimeTypeForGemini}" because isVideo=true and isAnimatedImage=true.`);
+            } else if (mimeType === 'video/webm') {
+                // WebM files should be sent as MP4 for better Gemini compatibility
+                mimeTypeForGemini = 'video/mp4';
+                console.log(`ALERT: For Gemini API call, overriding mimeType from "${mimeType}" to "${mimeTypeForGemini}" for better WebM compatibility.`);
+            }
 
-        const geminiRequestBody = {
-          contents: [{
-            parts: [
-              { text: effectiveSystemInstructions },
-              { inline_data: { mime_type: mimeTypeForGemini, data: base64Data } } // Use mimeTypeForGemini
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.2, // Lower temperature for more deterministic output
-            maxOutputTokens: 2048, // Allow for longer descriptions if needed
-            topP: 0.95,
-            topK: 64
-          }
-        };
+            // Create generation config for alt text generation
+            const config = createGenerationConfig({
+                temperature: 0.2, // Lower temperature for more deterministic output  
+                maxOutputTokens: 2048, // Allow for longer descriptions if needed
+                systemInstruction: effectiveSystemInstructions
+            });
 
-        console.log(`Calling Gemini API with mimeType: ${mimeTypeForGemini}, dataLength: ${base64Data.length}...`);
-        const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(geminiRequestBody)
-        });
+            console.log(`Calling Gemini 2.5 Flash with mimeType: ${mimeTypeForGemini}, dataLength: ${base64Data.length}...`);
+            
+            let response;
+            let generatedText;
+            
+            // Check if we need to use Files API for large media files
+            if (shouldUseFilesAPI(base64Data)) {
+                console.log('Large media file detected, using Files API for alt text generation');
+                
+                // Upload file using Files API
+                const uploadedFile = await uploadToFilesAPI(base64Data, mimeTypeForGemini);
+                
+                // Create content using file URI
+                const contents = [{
+                    parts: [
+                        { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
+                    ]
+                }];
+                
+                response = await generateContentWithSDK(contents, config);
+                generatedText = response.text;
+                
+                // Clean up uploaded file after processing
+                try {
+                    await genaiClient.files.delete({ name: uploadedFile.name });
+                    console.log('Cleaned up uploaded file after alt text generation');
+                } catch (cleanupError) {
+                    console.warn('Warning: Could not clean up uploaded file:', cleanupError);
+                }
+                
+            } else {
+                // Use inline data for smaller files
+                const contents = [{
+                    parts: [
+                        { inlineData: { mimeType: mimeTypeForGemini, data: base64Data } }
+                    ]
+                }];
+                
+                response = await generateContentWithSDK(contents, config);
+                generatedText = response.text;
+            }
 
-        const geminiData = await geminiResponse.json();
-
-        if (!geminiResponse.ok) {
-          console.error('Gemini API Error Response:', JSON.stringify(geminiData));
-          const errorMsg = geminiData?.error?.message || `Gemini API failed with status ${geminiResponse.status}`;
-          // Return a structured error that the extension can understand
-          return res.status(geminiResponse.status >= 500 ? 502 : 400).json({ error: `Gemini API Error: ${errorMsg}` });
-        }
-
-        // --- Extract Text and Respond ---
-        // Adjust path based on Gemini API version/response structure if needed
-        const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!generatedText) {
-          console.error('Could not extract text from Gemini response:', JSON.stringify(geminiData));
-          return res.status(500).json({ error: 'Failed to parse response from AI service' });
+            if (!generatedText) {
+                console.error('Could not extract text from Gemini 2.5 Flash response');
+                return res.status(500).json({ error: 'Failed to parse response from AI service' });
+            }
+            
+        } catch (error) {
+            console.error('Error calling Gemini 2.5 Flash API:', error);
+            const statusCode = error.message.includes('API') ? 502 : 500;
+            return res.status(statusCode).json({ error: `Gemini API Error: ${error.message}` });
         }
 
         // For video frames, ensure the user knows this was an optimization
