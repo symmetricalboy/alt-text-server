@@ -1,4 +1,4 @@
-// index.js (for Google Cloud Functions - Node.js Runtime)
+// index.js (for Google Cloud Functions - Node.js Runtime)  
 // Updated to use the new @google/genai SDK with Gemini 2.5 Flash
 const { GoogleGenAI } = require('@google/genai');
 
@@ -156,28 +156,56 @@ function createGenerationConfig(options = {}) {
 }
 
 // Helper function to check if file is large enough to require Files API (>20MB)
-function shouldUseFilesAPI(base64Data) {
+// Now supports up to 100MB with Files API
+function shouldUseFilesAPI(base64Data, useCompression = false) {
     if (!base64Data) return false;
     
     // Estimate file size from base64 data
     // Base64 encoding increases size by ~33%, so decode to get actual size
     const estimatedSize = (base64Data.length * 3) / 4;
-    const MAX_INLINE_SIZE = 20 * 1024 * 1024; // 20MB
+    const MAX_INLINE_SIZE = 20 * 1024 * 1024; // 20MB for inline
+    const MAX_FILES_API_SIZE = 100 * 1024 * 1024; // 100MB for Files API
+    
+    // If compression is enabled, use compression for files over 20MB but under 100MB
+    if (useCompression && estimatedSize > MAX_INLINE_SIZE && estimatedSize <= MAX_FILES_API_SIZE) {
+        return false; // Use compression instead of Files API
+    }
     
     return estimatedSize > MAX_INLINE_SIZE;
 }
 
-// Helper function to upload file using Files API
+// In-memory cache for uploaded files (simple implementation)
+// In production, consider using Redis or proper database
+const fileCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+
+// Helper function to generate cache key from file data
+function generateCacheKey(base64Data, mimeType) {
+    const crypto = require('crypto');
+    return crypto.createHash('md5').update(base64Data + mimeType).digest('hex');
+}
+
+// Helper function to upload file using Files API with caching
 async function uploadToFilesAPI(base64Data, mimeType) {
     if (!genaiClient) {
         throw new Error('GenAI client not initialized');
+    }
+    
+    // Check cache first
+    const cacheKey = generateCacheKey(base64Data, mimeType);
+    const cached = fileCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log('Using cached file for Files API');
+        return cached.file;
     }
     
     try {
         // Convert base64 to Buffer for upload
         const buffer = Buffer.from(base64Data, 'base64');
         
-        // Upload using Files API with proper format
+        console.log(`Uploading ${buffer.length} bytes to Files API with mimeType: ${mimeType}`);
+        
+        // Upload using Files API with new SDK format
         const uploadResult = await genaiClient.files.upload({
             file: buffer,
             config: {
@@ -189,6 +217,7 @@ async function uploadToFilesAPI(base64Data, mimeType) {
         // Wait for processing if needed
         let file = uploadResult;
         while (file.state === 'PROCESSING') {
+            console.log('File processing, waiting...');
             await new Promise(resolve => setTimeout(resolve, 1000));
             file = await genaiClient.files.get({ name: file.name });
         }
@@ -197,6 +226,13 @@ async function uploadToFilesAPI(base64Data, mimeType) {
             throw new Error('File upload processing failed');
         }
         
+        // Cache the result
+        fileCache.set(cacheKey, {
+            file: file,
+            timestamp: Date.now()
+        });
+        
+        console.log(`Successfully uploaded file: ${file.name}`);
         return file;
     } catch (error) {
         console.error('Error uploading to Files API:', error);
@@ -379,54 +415,51 @@ const generateAltTextProxy = async (req, res) => {
                     systemInstruction: instructionsWithDuration
                 });
                 
-                                // Temporarily disable Files API for debugging - use inline data for all files
-                // if (shouldUseFilesAPI(base64Data)) {
-                //     console.log('Large video file detected, using Files API for caption generation');
-                //     
-                //     // Upload file using Files API
-                //     const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
-                //     
-                //     // Create content using file URI
-                //     const contents = [{
-                //         parts: [
-                //             { file_data: { file_uri: uploadedFile.uri, mime_type: uploadedFile.mimeType } }
-                //         ]
-                //     }];
-                //     
-                //     const response = await generateContentWithSDK(contents, config);
-                //     const generatedCaptions = response.text;
-                //     
-                //     // Clean up uploaded file after processing
-                //     try {
-                //         await genaiClient.files.delete({ name: uploadedFile.name });
-                //         console.log('Cleaned up uploaded file after caption generation');
-                //     } catch (cleanupError) {
-                //         console.warn('Warning: Could not clean up uploaded file:', cleanupError);
-                //     }
-                //     
-                //     if (!generatedCaptions) {
-                //         console.error('Could not extract captions from Gemini response');
-                //         return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
-                //     }
-                //     
-                //     // Ensure we have a properly formatted WebVTT file
-                //     let vttContent = generatedCaptions.trim();
-                //     
-                //     // Add WEBVTT header if not present
-                //     if (!vttContent.startsWith('WEBVTT')) {
-                //         vttContent = `WEBVTT\n\n${vttContent}`;
-                //     }
-                //     
-                //     console.log('Successfully generated captions using Files API.');
-                //     return res.status(200).json({ vttContent: vttContent });
-                //     
-                // } else {
-                    // Use inline data for all files (temporarily)
-                    const contents = [{
-                        parts: [
-                            { inlineData: { mimeType: mimeType, data: base64Data } }
-                        ]
-                    }];
+                // Check if we should use Files API for caption generation
+                if (shouldUseFilesAPI(base64Data)) {
+                    console.log('Large video file detected, using Files API for caption generation');
+                    
+                    // Upload file using Files API
+                    const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
+                    
+                    // Create content using file URI with new SDK format
+                    const contents = [
+                        {
+                            parts: [
+                                { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
+                            ]
+                        }
+                    ];
+                    
+                    const response = await generateContentWithSDK(contents, config);
+                    const generatedCaptions = response.text;
+                    
+                    if (!generatedCaptions) {
+                        console.error('Could not extract captions from Gemini response');
+                        return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
+                    }
+                    
+                    // Ensure we have a properly formatted WebVTT file
+                    let vttContent = generatedCaptions.trim();
+                    
+                    // Add WEBVTT header if not present
+                    if (!vttContent.startsWith('WEBVTT')) {
+                        vttContent = `WEBVTT\n\n${vttContent}`;
+                    }
+                    
+                    console.log('Successfully generated captions using Files API.');
+                    return res.status(200).json({ vttContent: vttContent });
+                    
+                } else {
+                    // Use inline data for smaller files
+                    console.log('Using inline data for caption generation');
+                    const contents = [
+                        {
+                            parts: [
+                                { inlineData: { mimeType: mimeType, data: base64Data } }
+                            ]
+                        }
+                    ];
                     
                     const response = await generateContentWithSDK(contents, config);
                     const generatedCaptions = response.text;
@@ -446,7 +479,7 @@ const generateAltTextProxy = async (req, res) => {
                     
                     console.log('Successfully generated captions using inline data.');
                     return res.status(200).json({ vttContent: vttContent });
-                // }
+                }
                 
             } catch (error) {
                 console.error('Error generating captions:', error);
@@ -463,10 +496,10 @@ const generateAltTextProxy = async (req, res) => {
                 return res.status(400).json({ error: 'Missing required fields for upload URL generation' });
             }
             
-            // Check if file size is too large (20MB limit)
-            const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+            // Check if file size is too large (100MB limit with Files API)
+            const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
             if (fileSize > MAX_FILE_SIZE) {
-                return res.status(413).json({ error: 'File too large. Maximum size is 20MB.' });
+                return res.status(413).json({ error: 'File too large. Maximum size is 100MB.' });
             }
             
             // For demo purposes, instead of actually generating a signed URL, we'll just return 
@@ -524,7 +557,11 @@ In a real implementation, we would analyze the actual video.`;
         }
         
         // Regular image/video alt text generation
-        let { base64Data, mimeType } = req.body; // Allow mimeType to be modified
+        let { base64Data, mimeType, useCompression } = req.body; // Allow mimeType to be modified
+        
+        // useCompression is optional - defaults to false for Files API preference
+        const shouldCompress = useCompression === true;
+        console.log(`Processing request with compression: ${shouldCompress}`);
 
         if (!base64Data || !mimeType) {
             return res.status(400).json({ error: 'Missing required fields: base64Data and mimeType' });
@@ -599,42 +636,42 @@ In a real implementation, we would analyze the actual video.`;
 
             console.log(`Calling Gemini 2.5 Flash with mimeType: ${mimeTypeForGemini}, dataLength: ${base64Data.length}...`);
             
-            // Temporarily disable Files API for debugging - use inline data for all files
-            // if (shouldUseFilesAPI(base64Data)) {
-            //     console.log('Large media file detected, using Files API for alt text generation');
-            //     
-            //     // Upload file using Files API
-            //     const uploadedFile = await uploadToFilesAPI(base64Data, mimeTypeForGemini);
-            //     
-            //     // Create content using file URI
-            //     const contents = [{
-            //         parts: [
-            //             { file_data: { file_uri: uploadedFile.uri, mime_type: uploadedFile.mimeType } }
-            //         ]
-            //     }];
-            //     
-            //     const response = await generateContentWithSDK(contents, config);
-            //     generatedText = response.text;
-            //     
-            //     // Clean up uploaded file after processing
-            //     try {
-            //         await genaiClient.files.delete({ name: uploadedFile.name });
-            //         console.log('Cleaned up uploaded file after alt text generation');
-            //     } catch (cleanupError) {
-            //         console.warn('Warning: Could not clean up uploaded file:', cleanupError);
-            //     }
-            //     
-            // } else {
-                // Use inline data for all files (temporarily)
-                const contents = [{
-                    parts: [
-                        { inlineData: { mimeType: mimeTypeForGemini, data: base64Data } }
-                    ]
-                }];
+            // Check if we should use Files API based on file size and compression preference
+            if (shouldUseFilesAPI(base64Data, shouldCompress)) {
+                console.log('Large media file detected, using Files API for alt text generation');
+                
+                // Upload file using Files API
+                const uploadedFile = await uploadToFilesAPI(base64Data, mimeTypeForGemini);
+                
+                // Create content using file URI with new SDK format
+                const contents = [
+                    {
+                        parts: [
+                            { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
+                        ]
+                    }
+                ];
                 
                 const response = await generateContentWithSDK(contents, config);
                 generatedText = response.text;
-            // }
+                
+                // Note: We keep files cached for reuse, so no immediate cleanup
+                console.log('Successfully processed using Files API');
+                
+            } else {
+                // Use inline data for smaller files or when compression is preferred
+                console.log('Using inline data for processing');
+                const contents = [
+                    {
+                        parts: [
+                            { inlineData: { mimeType: mimeTypeForGemini, data: base64Data } }
+                        ]
+                    }
+                ];
+                
+                const response = await generateContentWithSDK(contents, config);
+                generatedText = response.text;
+            }
 
             if (!generatedText) {
                 console.error('Could not extract text from Gemini 2.5 Flash response');
