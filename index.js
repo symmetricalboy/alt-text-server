@@ -214,21 +214,21 @@ async function uploadToFilesAPI(base64Data, mimeType) {
         fs.writeFileSync(tempFilePath, buffer);
         
         try {
-            // Upload using Files API with @google/genai SDK format
-            const uploadResult = await genaiClient.files.upload({
-                file: tempFilePath,
-                config: {
+            // Upload using Files API with correct @google/genai SDK format
+            const uploadResult = await genaiClient.files.upload(
+                tempFilePath,
+                {
                     mimeType: mimeType,
                     displayName: `uploaded_media_${Date.now()}`
                 }
-            });
+            );
             
             // Wait for processing if needed
             let file = uploadResult;
             while (file.state === 'PROCESSING') {
                 console.log('File processing, waiting...');
                 await new Promise(resolve => setTimeout(resolve, 1000));
-                file = await genaiClient.files.get({ name: file.name });
+                file = await genaiClient.files.get(file.name);
             }
             
             if (file.state === 'FAILED') {
@@ -266,11 +266,15 @@ async function generateContentWithSDK(contents, config) {
     }
     
     try {
-        const response = await genaiClient.models.generateContent({
-            model: 'gemini-2.5-flash', // Using the new Gemini 2.5 Flash model
+        // Flatten config parameters to top level - the SDK doesn't use a separate config object
+        const requestParams = {
+            model: 'gemini-2.5-flash', // Using Gemini 2.5 Flash as specified
             contents: contents,
-            config: config
-        });
+            // Spread config parameters directly at top level
+            ...(config || {})
+        };
+        
+        const response = await genaiClient.models.generateContent(requestParams);
         
         return response;
     } catch (error) {
