@@ -279,6 +279,43 @@ async function generateContentWithSDK(contents, config) {
     }
 }
 
+// Helper function to process media with either Files API or inline data
+async function processMediaWithSDK(base64Data, mimeType, config, shouldCompress = false) {
+    if (shouldUseFilesAPI(base64Data, shouldCompress)) {
+        console.log('Large media file detected, using Files API');
+        
+        // Upload file using Files API
+        const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
+        
+        // Create content using file URI with @google/genai SDK format
+        const contents = [
+            {
+                parts: [
+                    { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
+                ]
+            }
+        ];
+        
+        const response = await generateContentWithSDK(contents, config);
+        console.log('Successfully processed using Files API');
+        return response.text;
+        
+    } else {
+        // Use inline data for smaller files or when compression is preferred
+        console.log('Using inline data for processing');
+        const contents = [
+            {
+                parts: [
+                    { inlineData: { mimeType: mimeType, data: base64Data } }
+                ]
+            }
+        ];
+        
+        const response = await generateContentWithSDK(contents, config);
+        return response.text;
+    }
+}
+
 
 const generateAltTextProxy = async (req, res) => {
     const requestOrigin = req.headers.origin;
@@ -379,8 +416,16 @@ const generateAltTextProxy = async (req, res) => {
             
             try {
                 // Call Gemini 2.5 Flash for text condensation using new SDK
-                const response = await generateContentWithSDK(condensationPrompt, config);
+                // Format the prompt as contents array for SDK compatibility
+                const contents = [
+                    {
+                        parts: [
+                            { text: condensationPrompt }
+                        ]
+                    }
+                ];
                 
+                const response = await generateContentWithSDK(contents, config);
                 const condensedText = response.text;
             
             if (!condensedText) {
@@ -434,71 +479,24 @@ const generateAltTextProxy = async (req, res) => {
                     systemInstruction: instructionsWithDuration
                 });
                 
-                // Check if we should use Files API for caption generation
-                if (shouldUseFilesAPI(base64Data)) {
-                    console.log('Large video file detected, using Files API for caption generation');
-                    
-                    // Upload file using Files API
-                    const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
-                    
-                    // Create content using file URI with @google/genai SDK format
-                    const contents = [
-                        {
-                            parts: [
-                                { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
-                            ]
-                        }
-                    ];
-                    
-                    const response = await generateContentWithSDK(contents, config);
-                    const generatedCaptions = response.text;
-                    
-                    if (!generatedCaptions) {
-                        console.error('Could not extract captions from Gemini response');
-                        return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
-                    }
-                    
-                    // Ensure we have a properly formatted WebVTT file
-                    let vttContent = generatedCaptions.trim();
-                    
-                    // Add WEBVTT header if not present
-                    if (!vttContent.startsWith('WEBVTT')) {
-                        vttContent = `WEBVTT\n\n${vttContent}`;
-                    }
-                    
-                    console.log('Successfully generated captions using Files API.');
-                    return res.status(200).json({ vttContent: vttContent });
-                    
-                } else {
-                    // Use inline data for smaller files
-                    console.log('Using inline data for caption generation');
-                    const contents = [
-                        {
-                            parts: [
-                                { inlineData: { mimeType: mimeType, data: base64Data } }
-                            ]
-                        }
-                    ];
-                    
-                    const response = await generateContentWithSDK(contents, config);
-                    const generatedCaptions = response.text;
-                    
-                    if (!generatedCaptions) {
-                        console.error('Could not extract captions from Gemini response');
-                        return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
-                    }
-                    
-                    // Ensure we have a properly formatted WebVTT file
-                    let vttContent = generatedCaptions.trim();
-                    
-                    // Add WEBVTT header if not present
-                    if (!vttContent.startsWith('WEBVTT')) {
-                        vttContent = `WEBVTT\n\n${vttContent}`;
-                    }
-                    
-                    console.log('Successfully generated captions using inline data.');
-                    return res.status(200).json({ vttContent: vttContent });
+                // Use the helper function to process media for caption generation
+                const generatedCaptions = await processMediaWithSDK(base64Data, mimeType, config);
+                
+                if (!generatedCaptions) {
+                    console.error('Could not extract captions from Gemini response');
+                    return res.status(500).json({ error: 'Failed to parse caption response from AI service' });
                 }
+                
+                // Ensure we have a properly formatted WebVTT file
+                let vttContent = generatedCaptions.trim();
+                
+                // Add WEBVTT header if not present
+                if (!vttContent.startsWith('WEBVTT')) {
+                    vttContent = `WEBVTT\n\n${vttContent}`;
+                }
+                
+                console.log('Successfully generated captions.');
+                return res.status(200).json({ vttContent: vttContent });
                 
             } catch (error) {
                 console.error('Error generating captions:', error);
@@ -655,42 +653,8 @@ In a real implementation, we would analyze the actual video.`;
 
             console.log(`Calling Gemini 2.5 Flash with mimeType: ${mimeTypeForGemini}, dataLength: ${base64Data.length}...`);
             
-            // Check if we should use Files API based on file size and compression preference
-            if (shouldUseFilesAPI(base64Data, shouldCompress)) {
-                console.log('Large media file detected, using Files API for alt text generation');
-                
-                // Upload file using Files API
-                const uploadedFile = await uploadToFilesAPI(base64Data, mimeTypeForGemini);
-                
-                // Create content using file URI with @google/genai SDK format
-                const contents = [
-                    {
-                        parts: [
-                            { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
-                        ]
-                    }
-                ];
-                
-                const response = await generateContentWithSDK(contents, config);
-                generatedText = response.text;
-                
-                // Note: We keep files cached for reuse, so no immediate cleanup
-                console.log('Successfully processed using Files API');
-                
-            } else {
-                // Use inline data for smaller files or when compression is preferred
-                console.log('Using inline data for processing');
-                const contents = [
-                    {
-                        parts: [
-                            { inlineData: { mimeType: mimeTypeForGemini, data: base64Data } }
-                        ]
-                    }
-                ];
-                
-                const response = await generateContentWithSDK(contents, config);
-                generatedText = response.text;
-            }
+            // Use the helper function to process media for alt text generation
+            generatedText = await processMediaWithSDK(base64Data, mimeTypeForGemini, config, shouldCompress);
 
             if (!generatedText) {
                 console.error('Could not extract text from Gemini 2.5 Flash response');
