@@ -266,17 +266,20 @@ async function generateContentWithSDK(contents, config) {
     }
     
     try {
-        // Flatten config parameters to top level - the SDK doesn't use a separate config object
-        const requestParams = {
-            model: 'gemini-2.5-flash', // Using Gemini 2.5 Flash as specified
+        // Get the model instance first
+        const model = genaiClient.getGenerativeModel({model: "gemini-2.5-flash"});
+        
+        // Call generateContent on the model instance
+        const response = await model.generateContent({
             contents: contents,
             // Spread config parameters directly at top level
             ...(config || {})
+        });
+        
+        // Return an object that mimics the expected interface with correct response access
+        return {
+            text: response.response.text()
         };
-        
-        const response = await genaiClient.models.generateContent(requestParams);
-        
-        return response;
     } catch (error) {
         console.error('Error generating content with SDK:', error);
         throw error;
