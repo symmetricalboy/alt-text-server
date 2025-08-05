@@ -12,6 +12,15 @@ const { generateAltTextProxy } = require('./index.js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Add multer for file uploads
+const multer = require('multer');
+const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { 
+        fileSize: 100 * 1024 * 1024 // 100MB limit for Files API
+    }
+});
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -20,6 +29,76 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy', service: 'alt-text-server' });
+});
+
+// Files API upload endpoint for large files
+app.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { action, mimeType, isVideo } = req.body;
+    
+    if (!action || !mimeType) {
+      return res.status(400).json({ error: 'Missing required fields: action, mimeType' });
+    }
+
+    // Convert uploaded file buffer to base64 for compatibility with existing logic
+    const base64Data = req.file.buffer.toString('base64');
+    
+    console.log(`Files API upload: ${req.file.originalname}, ${(req.file.size / 1024 / 1024).toFixed(2)}MB, action: ${action}`);
+
+    // Create a mock request compatible with existing generateAltTextProxy logic
+    const mockReq = {
+      method: 'POST',
+      headers: req.headers,
+      body: {
+        action: action,
+        base64Data: base64Data,
+        mimeType: mimeType,
+        isVideo: isVideo === 'true' // Convert string to boolean
+      }
+    };
+    
+    const mockRes = {
+      statusCode: 200,
+      headers: {},
+      body: null,
+      set: (key, value) => {
+        mockRes.headers[key] = value;
+      },
+      status: (code) => {
+        mockRes.statusCode = code;
+        return mockRes;
+      },
+      send: (data) => {
+        mockRes.body = data;
+        // Actually send the response
+        res.status(mockRes.statusCode);
+        Object.entries(mockRes.headers).forEach(([key, value]) => {
+          res.setHeader(key, value);
+        });
+        res.send(data);
+      },
+      json: (data) => {
+        mockRes.body = data;
+        // Actually send the response
+        res.status(mockRes.statusCode);
+        Object.entries(mockRes.headers).forEach(([key, value]) => {
+          res.setHeader(key, value);
+        });
+        res.json(data);
+      }
+    };
+    
+    // Call the existing generateAltTextProxy logic
+    await generateAltTextProxy(mockReq, mockRes);
+    
+  } catch (error) {
+    console.error('Files API upload error:', error);
+    res.status(500).json({ error: 'Files API upload failed: ' + error.message });
+  }
 });
 
 // Main endpoint - convert the Google Cloud Function handler

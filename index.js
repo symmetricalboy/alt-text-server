@@ -1,5 +1,5 @@
 // index.js (for Google Cloud Functions - Node.js Runtime)  
-// Updated to use the new @google/genai SDK with Gemini 2.5 Flash
+// Updated to use the @google/genai SDK with Gemini 2.5 Flash
 const { GoogleGenAI } = require('@google/genai');
 
 // IMPORTANT: Store your API Key securely!
@@ -137,9 +137,6 @@ function createGenerationConfig(options = {}) {
     const config = {
         temperature: options.temperature || 0.25, // Using recommended temperature from example
         maxOutputTokens: options.maxOutputTokens || 10000, // Using recommended max tokens
-        thinkingConfig: {
-            thinkingBudget: 0 // Disable thinking as requested (camelCase)
-        }
         // Temporarily disable Google Search tools to simplify debugging
         // tools: [
         //     // Google Search for better object/people identification
@@ -147,7 +144,7 @@ function createGenerationConfig(options = {}) {
         // ]
     };
     
-    // Add additional config options if provided
+    // Add system instruction if provided
     if (options.systemInstruction) {
         config.systemInstruction = options.systemInstruction;
     }
@@ -205,42 +202,64 @@ async function uploadToFilesAPI(base64Data, mimeType) {
         
         console.log(`Uploading ${buffer.length} bytes to Files API with mimeType: ${mimeType}`);
         
-        // Upload using Files API with new SDK format
-        const uploadResult = await genaiClient.files.upload({
-            file: buffer,
-            config: {
-                mimeType: mimeType,
-                displayName: `uploaded_media_${Date.now()}`
+        // Create a temporary file path for the upload
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        
+        const tempFileName = `temp_upload_${Date.now()}.${mimeType.split('/')[1]}`;
+        const tempFilePath = path.join(os.tmpdir(), tempFileName);
+        
+        // Write buffer to temporary file
+        fs.writeFileSync(tempFilePath, buffer);
+        
+        try {
+            // Upload using Files API with @google/genai SDK format
+            const uploadResult = await genaiClient.files.upload({
+                file: tempFilePath,
+                config: {
+                    mimeType: mimeType,
+                    displayName: `uploaded_media_${Date.now()}`
+                }
+            });
+            
+            // Wait for processing if needed
+            let file = uploadResult;
+            while (file.state === 'PROCESSING') {
+                console.log('File processing, waiting...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                file = await genaiClient.files.get({ name: file.name });
             }
-        });
-        
-        // Wait for processing if needed
-        let file = uploadResult;
-        while (file.state === 'PROCESSING') {
-            console.log('File processing, waiting...');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            file = await genaiClient.files.get({ name: file.name });
+            
+            if (file.state === 'FAILED') {
+                throw new Error('File upload processing failed');
+            }
+            
+            // Cache the result
+            fileCache.set(cacheKey, {
+                file: file,
+                timestamp: Date.now()
+            });
+            
+            console.log(`Successfully uploaded file: ${file.name}`);
+            return file;
+            
+        } finally {
+            // Clean up temporary file
+            try {
+                fs.unlinkSync(tempFilePath);
+            } catch (cleanup_error) {
+                console.warn('Could not clean up temporary file:', cleanup_error);
+            }
         }
         
-        if (file.state === 'FAILED') {
-            throw new Error('File upload processing failed');
-        }
-        
-        // Cache the result
-        fileCache.set(cacheKey, {
-            file: file,
-            timestamp: Date.now()
-        });
-        
-        console.log(`Successfully uploaded file: ${file.name}`);
-        return file;
     } catch (error) {
         console.error('Error uploading to Files API:', error);
         throw error;
     }
 }
 
-// Helper function to generate content using the new SDK
+// Helper function to generate content using the @google/genai SDK
 async function generateContentWithSDK(contents, config) {
     if (!genaiClient) {
         throw new Error('GenAI client not initialized - missing API key');
@@ -422,7 +441,7 @@ const generateAltTextProxy = async (req, res) => {
                     // Upload file using Files API
                     const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
                     
-                    // Create content using file URI with new SDK format
+                    // Create content using file URI with @google/genai SDK format
                     const contents = [
                         {
                             parts: [
@@ -643,7 +662,7 @@ In a real implementation, we would analyze the actual video.`;
                 // Upload file using Files API
                 const uploadedFile = await uploadToFilesAPI(base64Data, mimeTypeForGemini);
                 
-                // Create content using file URI with new SDK format
+                // Create content using file URI with @google/genai SDK format
                 const contents = [
                     {
                         parts: [
