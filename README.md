@@ -1,113 +1,231 @@
-# Alt Text Server
+# Alt Text Generator - Backend Server
 
-Node.js Express server that proxies requests to the Google Gemini API for generating alt text and video captions. Designed for deployment on [Railway](https://railway.app).
+Centralized API server providing Google Gemini AI integration for alt text and caption generation. Designed for Railway deployment with comprehensive file handling and specialized AI instruction sets.
 
-## Features
+## 🌟 Features
 
--   Provides a secure endpoint for the [Alt Text Extension](https://github.com/your-github/alt-text-ext) and [Web App](https://github.com/your-github/alt-text-web).
--   **Specialized AI Instructions**: Uses dedicated instruction sets optimized for each request type:
-    - VTT caption generation with precise WebVTT formatting requirements
-    - Still image alt text generation for static images
-    - Animated content descriptions for GIFs and short videos
-    - Full video alt text for comprehensive video content
-    - Video frame descriptions for single extracted frames
-    - Text condensation for length optimization
--   **Smart Content Detection**: Automatically selects appropriate instruction sets based on media type and characteristics
--   Handles CORS and request validation.
--   Adapts the original Google Cloud Function logic to run as a standard Express server.
--   Includes a `/health` endpoint for deployment health checks.
+- **🤖 Advanced AI Integration:** Google GenAI SDK v1.12.0 with Gemini 2.5 Flash
+- **📝 Specialized Instructions:** Content-type aware AI processing for optimal results
+- **📁 Smart File Handling:** Automatic strategy selection based on file size and type  
+- **🔄 Files API Support:** Large file processing up to 100MB with compression fallbacks
+- **🌐 Multi-Client Support:** Serves both browser extension and web application
+- **🚀 Production Ready:** Railway deployment with health monitoring and auto-scaling
 
-## API Endpoint
+## 🏗️ Architecture
 
--   `POST /generate-alt-text`
+### Core Components
+- **Express.js Server:** HTTP API with CORS and security middleware
+- **Google GenAI Client:** Official SDK for Gemini API integration  
+- **File Processing Pipeline:** Size-based strategy selection and optimization
+- **Specialized AI Instructions:** Six content-type specific instruction sets
 
-    This is the main endpoint that receives requests for alt text generation, video captioning, and text condensation. It expects a JSON body with the same structure as the original `generateAltTextProxy` function.
-
-## Request Types and AI Instructions
-
-The server uses specialized instruction sets tailored for different types of content:
-
-### 1. VTT Caption Generation
-- **Trigger**: `req.body.action === 'generateCaptions'`
-- **Use Case**: Creating properly formatted WebVTT subtitle files for videos with audio
-- **Features**: Precise timestamp formatting, audio transcription, sound effect notation
-
-### 2. Still Image Alt Text
-- **Trigger**: Static images (JPEG, PNG, etc.) without animation
-- **Use Case**: Describing photographs, illustrations, screenshots, diagrams
-- **Features**: Concise descriptions, text transcription, clinical objectivity
-
-### 3. Animated Content Alt Text  
-- **Trigger**: Animated GIFs, animated WebP, APNG, or short videos treated as animations
-- **Use Case**: Describing looping animations and short motion content
-- **Features**: Complete sequence description, motion capture, unified narrative
-
-### 4. Full Video Alt Text
-- **Trigger**: Standard video files (MP4, WebM) with `isVideo=true`
-- **Use Case**: Comprehensive description of video content and narrative
-- **Features**: Scene progression, visual narrative, comprehensive coverage
-
-### 5. Video Frame Alt Text
-- **Trigger**: Single frames extracted from videos due to processing limitations
-- **Use Case**: Best-effort description when full video processing isn't possible
-- **Features**: Detailed frame analysis, context inference, clear limitation acknowledgment
-
-### 6. Text Condensation
-- **Trigger**: `req.body.operation === 'condense_text'`
-- **Use Case**: Reducing text length while preserving essential meaning
-- **Features**: Intelligent summarization, length targeting, meaning preservation
-
-## Getting Started
-
-### Prerequisites
-
--   Node.js v18
--   A Google Gemini API Key
-
-### Installation
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/your-github/alt-text-server.git
-    cd alt-text-server
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Create a local environment file by copying the example:
-    ```bash
-    cp .env.example .env
-    ```
-4.  Open the new `.env` file and add your Google Gemini API key.
-
-### Running Locally
-
-1.  Start the server in development mode (with hot-reloading):
-    ```bash
-    npm run dev
-    ```
-2.  The server will be running at `http://localhost:3000`.
-
-## Deployment to Railway
-
-This server is ready to be deployed on Railway.
-
-1.  Create a new project on Railway and link this GitHub repository.
-2.  Railway will automatically detect the `start` script in `package.json` (`node server.js`).
-3.  In the project's "Variables" tab on Railway, add your `GEMINI_API_KEY`. You do not need to upload your `.env` file, as Railway uses its own system for secrets.
-4.  Configure the Healthcheck in the "Settings" tab to use the `/health` path.
-
-Railway will build and deploy the service. The public URL will be provided in your Railway dashboard.
-
-## Project Structure
-
+### Processing Strategies
 ```
-alt-text-server/
-├── server.js           # Express server wrapper for Railway
-├── index.js            # Core logic from the original cloud function
-├── package.json        # Dependencies and scripts
-├── .gitignore          # Files to exclude from version control
-├── .env.example        # Example environment variables
-└── README.md           # This file
+File Size < 15MB    → Direct API call
+File Size 15-100MB  → Files API upload  
+File Size > 100MB   → Compression + Files API
 ```
+
+## 📡 API Endpoints
+
+### POST /generate-alt-text
+Primary endpoint for all alt text and caption generation.
+
+**Request:**
+```json
+{
+  "base64Data": "data:image/jpeg;base64,/9j/4AAQ...",
+  "mimeType": "image/jpeg",
+  "action": "generateAltText",
+  "isVideo": false
+}
+```
+
+**Response:**
+```json
+{
+  "altText": "A photograph showing...",
+  "processing": {
+    "strategy": "direct_api",
+    "fileSize": 1048576
+  }
+}
+```
+
+### GET /health
+Health monitoring endpoint for deployment systems.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-20T10:30:00.000Z",
+  "version": "1.0.0"
+}
+```
+
+## 🧠 AI Instruction Sets
+
+The server uses specialized instruction sets optimized for different content types:
+
+1. **VTT Caption Generation** - WebVTT-formatted video captions
+2. **Still Image Alt Text** - Optimized for photographs and static images  
+3. **Animated Content** - Specialized for GIFs and short animations
+4. **Full Video Alt Text** - Comprehensive video descriptions
+5. **Video Frame Alt Text** - Single frame analysis with context
+6. **Text Condensation** - Length optimization while preserving meaning
+
+## 🚀 Deployment
+
+### Railway Deployment (Recommended)
+
+1. **Create Railway Project:**
+   ```bash
+   # Connect to GitHub repository
+   railway login
+   railway link
+   ```
+
+2. **Set Environment Variables:**
+   ```bash
+   railway variables set GEMINI_API_KEY=your_api_key_here
+   ```
+
+3. **Deploy:**
+   ```bash
+   railway up
+   ```
+
+### Local Development
+
+1. **Setup:**
+   ```bash
+   git clone https://github.com/symmetricalboy/alt-text-server.git
+   cd alt-text-server
+   npm install
+   ```
+
+2. **Configuration:**
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your GEMINI_API_KEY
+   ```
+
+3. **Run:**
+   ```bash
+   npm run dev    # Development with nodemon
+   npm start      # Production
+   ```
+
+## 🔧 Configuration
+
+### Environment Variables
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here  # Required
+PORT=3000                                # Optional, defaults to 3000
+NODE_ENV=production                      # Optional
+```
+
+### CORS Configuration
+Pre-configured for:
+- Extension origins (Chrome, Firefox, Safari)
+- Web app domains (alttext.symm.app)
+- Local development (localhost:3000, localhost:8080)
+
+## 🌐 Related Repositories
+
+This server is part of a comprehensive ecosystem:
+
+- **🏠 [gen-alt-text](https://github.com/symmetricalboy/gen-alt-text)** - Main project hub and documentation
+- **🧩 [alt-text-ext](https://github.com/symmetricalboy/alt-text-ext)** - Browser extension client
+- **🖥️ [alt-text-web](https://github.com/symmetricalboy/alt-text-web)** - Web application client
+
+## 📊 Performance & Monitoring
+
+### File Processing Metrics
+- **Direct API:** Files < 15MB processed in ~2-5 seconds
+- **Files API:** Large files processed in ~10-30 seconds  
+- **Compression:** Automatic quality adjustment based on file characteristics
+
+### Health Monitoring
+- **Railway Integration:** Automatic health checks and uptime monitoring
+- **Error Tracking:** Comprehensive logging and error reporting
+- **Auto-scaling:** Automatic scaling based on request volume
+
+## 🛡️ Security Features
+
+- **API Key Protection:** Secure environment variable storage
+- **CORS Policy:** Restricted origin access with specific allowlists
+- **Request Validation:** Input sanitization and file size limits
+- **Rate Limiting:** Built-in protection against abuse
+- **HTTPS Only:** Secure transmission for all communications
+
+## 🔬 Advanced Features
+
+### Smart Content Detection
+Automatic selection of appropriate AI instructions based on:
+- File MIME type analysis
+- Content characteristics detection  
+- Processing context awareness
+
+### Compression Strategies
+- **Adaptive Quality:** Progressive quality reduction for large files
+- **Format Optimization:** Codec selection based on content type
+- **Bitrate Management:** Intelligent bitrate adjustment
+
+### Caching & Optimization
+- **Response Caching:** Intelligent caching for repeated requests
+- **Memory Management:** Automatic cleanup for large file processing
+- **Request Optimization:** Concurrent request limiting and timeout management
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**API Key Invalid:**
+```bash
+# Verify environment variable is set
+echo $GEMINI_API_KEY
+```
+
+**CORS Errors:**
+```bash  
+# Check origin in request headers
+# Ensure origin is in allowlist
+```
+
+**File Too Large:**
+```bash
+# Server supports up to 100MB with Files API
+# Files > 100MB will be compressed automatically
+```
+
+## 🤝 Contributing
+
+For server-specific issues and contributions:
+
+1. **Bug Reports:** [Server Issues](https://github.com/symmetricalboy/alt-text-server/issues)
+2. **Feature Requests:** [Main Project Issues](https://github.com/symmetricalboy/gen-alt-text/issues)
+3. **Development:** See [Development Guide](https://github.com/symmetricalboy/gen-alt-text/blob/main/docs/development-guide.md)
+
+## 📖 Documentation
+
+Comprehensive documentation available in the main project:
+- **[Technical Architecture](https://github.com/symmetricalboy/gen-alt-text/blob/main/docs/technical-architecture.md)**
+- **[Backend Server Details](https://github.com/symmetricalboy/gen-alt-text/blob/main/docs/backend-server.md)**
+- **[API Documentation](https://github.com/symmetricalboy/gen-alt-text/blob/main/docs/api-documentation.md)**
+
+## 📜 License
+
+MIT License - see [LICENSE](./LICENSE) file for details.
+
+## 🔗 Links
+
+- **🌐 Live Web App:** [alttext.symm.app](https://alttext.symm.app)
+- **🧩 Browser Extension:** Available on [Chrome](https://chromewebstore.google.com/detail/bdgpkmjnfildfjhpjagjibfnfpdieddp) and [Firefox](https://addons.mozilla.org/en-US/firefox/addon/bluesky-alt-text-generator/)
+- **🏠 Main Project:** [gen-alt-text](https://github.com/symmetricalboy/gen-alt-text)
+- **📱 Bluesky:** [@symm.app](https://bsky.app/profile/symm.app)
+
+---
+
+*Powering accessible AI generation across the entire Alt Text Generator ecosystem! 🚀*
