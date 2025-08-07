@@ -207,7 +207,7 @@ async function uploadToFilesAPI(base64Data, mimeType) {
         const path = require('path');
         const os = require('os');
         
-        const tempFileName = `temp_upload_${Date.now()}.${mimeType.split('/')[1]}`;
+        const tempFileName = `temp_upload_${Date.now()}.${mimeType.split('/')[1] || 'bin'}`;
         const tempFilePath = path.join(os.tmpdir(), tempFileName);
         
         // Write buffer to temporary file
