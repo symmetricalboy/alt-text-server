@@ -132,7 +132,9 @@ const allowedPrefixes = [
 
 // --- All system instructions are now defined above as specialized instruction sets ---
 
+
 // Helper function to create generation config with Gemini 2.5 Flash settings for new SDK
+
 function createGenerationConfig(options = {}) {
     const config = {
         temperature: options.temperature || 0.25, // Using recommended temperature from example
@@ -140,7 +142,9 @@ function createGenerationConfig(options = {}) {
         // Temporarily disable Google Search tools to simplify debugging
         // tools: [
         //     // Google Search for better object/people identification
+
         //     { googleSearch: {} }
+      
         // ]
     };
     
@@ -214,6 +218,7 @@ async function uploadToFilesAPI(base64Data, mimeType) {
         fs.writeFileSync(tempFilePath, buffer);
         
         try {
+
             // Upload using Files API with new @google/genai SDK v1.12.0 format
             const uploadResult = await genaiClient.files.upload({
                 file: tempFilePath,
@@ -226,7 +231,9 @@ async function uploadToFilesAPI(base64Data, mimeType) {
             while (file.state === 'PROCESSING') {
                 console.log('File processing, waiting...');
                 await new Promise(resolve => setTimeout(resolve, 1000));
+
                 file = await genaiClient.files.get({ name: file.name });
+
             }
             
             if (file.state === 'FAILED') {
@@ -257,13 +264,16 @@ async function uploadToFilesAPI(base64Data, mimeType) {
     }
 }
 
+
 // Helper function to generate content using the @google/genai SDK v1.12.0
+
 async function generateContentWithSDK(contents, config) {
     if (!genaiClient) {
         throw new Error('GenAI client not initialized - missing API key');
     }
     
     try {
+
         // Use the new SDK pattern: client.models.generateContent
         const response = await genaiClient.models.generateContent({
             model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -274,6 +284,7 @@ async function generateContentWithSDK(contents, config) {
         // Return an object that mimics the expected interface
         return {
             text: response.text
+
         };
     } catch (error) {
         console.error('Error generating content with SDK:', error);
@@ -289,10 +300,12 @@ async function processMediaWithSDK(base64Data, mimeType, config, shouldCompress 
         // Upload file using Files API
         const uploadedFile = await uploadToFilesAPI(base64Data, mimeType);
         
+
         // Create content using file URI with new @google/genai SDK v1.12.0 format
         const contents = [
             {
                 role: 'user',
+
                 parts: [
                     { fileData: { fileUri: uploadedFile.uri, mimeType: uploadedFile.mimeType } }
                 ]
@@ -308,6 +321,7 @@ async function processMediaWithSDK(base64Data, mimeType, config, shouldCompress 
         console.log('Using inline data for processing');
         const contents = [
             {
+
                 role: 'user',
                 parts: [
                     { inlineData: { mimeType: mimeType, data: base64Data } }
@@ -419,11 +433,13 @@ const generateAltTextProxy = async (req, res) => {
             });
             
             try {
+
                 // Call Gemini 2.5 Flash for text condensation using new SDK v1.12.0
                 // Format the prompt as contents array for SDK compatibility
                 const contents = [
                     {
                         role: 'user',
+
                         parts: [
                             { text: condensationPrompt }
                         ]
