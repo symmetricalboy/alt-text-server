@@ -266,7 +266,7 @@ async function generateContentWithSDK(contents, config) {
     try {
         // Use the new SDK pattern: client.models.generateContent
         const response = await genaiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
             contents: contents,
             config: config || {}
         });
